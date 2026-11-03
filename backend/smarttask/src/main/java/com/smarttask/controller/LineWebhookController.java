@@ -10,18 +10,30 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.smarttask.security.LineSignatureValidator;
+import com.smarttask.service.LineReplyService;
+
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 @RestController
 @RequestMapping("/api/line")
 public class LineWebhookController {
 
     private final LineSignatureValidator signatureValidator;
+    private final LineReplyService lineReplyService;
+    private final ObjectMapper objectMapper;
 
     @Value("${line.channel-secret}")
     private String channelSecret;
 
-    public LineWebhookController(LineSignatureValidator signatureValidator) {
+    public LineWebhookController(
+            LineSignatureValidator signatureValidator,
+            LineReplyService lineReplyService,
+            ObjectMapper objectMapper) {
+
         this.signatureValidator = signatureValidator;
+        this.lineReplyService = lineReplyService;
+        this.objectMapper = objectMapper;
     }
 
     @PostMapping("/webhook")
@@ -30,6 +42,7 @@ public class LineWebhookController {
             @RequestHeader(value = "X-Line-Signature", required = false)
             String signature) {
 
+        // 1. ตรวจสอบ Signature
         if (signature == null ||
                 !signatureValidator.validate(body, signature, channelSecret)) {
 
@@ -37,9 +50,45 @@ public class LineWebhookController {
                     .body("Invalid signature");
         }
 
-        System.out.println("LINE Webhook received:");
-        System.out.println(body);
+        try {
+            // 2. อ่าน JSON
+            JsonNode root = objectMapper.readTree(body);
+            JsonNode events = root.path("events");
 
-        return ResponseEntity.ok("OK");
+            // 3. วนอ่าน Event
+            for (JsonNode event : events) {
+
+                String eventType = event.path("type").asText();
+
+                // 4. สนใจเฉพาะข้อความที่ผู้ใช้ส่งมา
+                if ("message".equals(eventType)
+                        && "text".equals(event.path("message")
+                                .path("type").asText())) {
+
+                    String replyToken =
+                            event.path("replyToken").asText();
+
+                    String userMessage =
+                            event.path("message").path("text").asText();
+
+                    // 5. ตอบกลับข้อความ
+                    if (!replyToken.isBlank()) {
+                        lineReplyService.replyText(
+                                replyToken,
+                                "SmartTask ได้รับข้อความแล้ว: " + userMessage
+                        );
+                    }
+                }
+            }
+
+            return ResponseEntity.ok("OK");
+
+        } catch (Exception e) {
+            System.err.println("Webhook processing failed: "
+                    + e.getMessage());
+
+            return ResponseEntity.internalServerError()
+                    .body("Webhook processing failed");
+        }
     }
 }
