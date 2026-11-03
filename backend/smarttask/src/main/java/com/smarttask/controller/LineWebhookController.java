@@ -9,6 +9,8 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.smarttask.parser.MessageParser;
+import com.smarttask.parser.ParsedCommand;
 import com.smarttask.security.LineSignatureValidator;
 import com.smarttask.service.LineReplyService;
 
@@ -22,18 +24,21 @@ public class LineWebhookController {
     private final LineSignatureValidator signatureValidator;
     private final LineReplyService lineReplyService;
     private final ObjectMapper objectMapper;
+    private final MessageParser messageParser;
 
     @Value("${line.channel-secret}")
     private String channelSecret;
 
     public LineWebhookController(
-            LineSignatureValidator signatureValidator,
-            LineReplyService lineReplyService,
-            ObjectMapper objectMapper) {
+        LineSignatureValidator signatureValidator,
+        LineReplyService lineReplyService,
+        ObjectMapper objectMapper,
+        MessageParser messageParser) {
 
-        this.signatureValidator = signatureValidator;
-        this.lineReplyService = lineReplyService;
-        this.objectMapper = objectMapper;
+    this.signatureValidator = signatureValidator;
+    this.lineReplyService = lineReplyService;
+    this.objectMapper = objectMapper;
+    this.messageParser = messageParser;
     }
 
     @PostMapping("/webhook")
@@ -73,10 +78,33 @@ public class LineWebhookController {
 
                     // 5. ตอบกลับข้อความ
                     if (!replyToken.isBlank()) {
-                        lineReplyService.replyText(
-                                replyToken,
-                                "SmartTask ได้รับข้อความแล้ว: " + userMessage
-                        );
+                        ParsedCommand command = messageParser.parse(userMessage);
+
+                        String replyMessage;
+
+                        switch (command.getCommandType()) {
+
+                            case ADD_TASK:
+                                replyMessage = "รับคำสั่งเพิ่มงาน: " + command.getTaskName();
+                                break;
+
+                            case LIST_TASKS:
+                                replyMessage = "กำลังเรียกดูรายการงาน";
+                                break;
+
+                            case COMPLETE_TASK:
+                                replyMessage = "รับคำสั่งทำงานหมายเลข " + command.getTaskName() + " เสร็จแล้ว";
+                                break;
+
+                            case DELETE_TASK:
+                                replyMessage = "รับคำสั่งลบงานหมายเลข " + command.getTaskName();
+                                break;
+
+                            default:
+                                replyMessage = "ไม่เข้าใจคำสั่ง กรุณาลองใหม่";
+                        }
+
+                        lineReplyService.replyText(replyToken, replyMessage);
                     }
                 }
             }
