@@ -10,6 +10,7 @@ RUN chmod +x mvnw
 RUN ./mvnw dependency:go-offline
 
 COPY src/ src/
+COPY certs/ certs/
 
 RUN ./mvnw clean package -DskipTests
 
@@ -20,6 +21,7 @@ FROM eclipse-temurin:21-jre
 WORKDIR /app
 
 COPY --from=build /app/target/*.jar app.jar
+COPY --from=build /app/certs/tidb-truststore.p12 /app/certs/tidb-truststore.p12
 
 EXPOSE 8080
 
